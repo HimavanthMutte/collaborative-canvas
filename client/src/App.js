@@ -1,5 +1,3 @@
-"use client";
-
 import { useRef, useEffect, useState } from "react";
 
 export default function App() {
@@ -29,11 +27,14 @@ export default function App() {
       ctx.lineWidth = size;
 
       switch (tool) {
+        case "eraser":
+          ctx.globalCompositeOperation = "destination-out";
+          ctx.lineWidth = size * 2;
+        // eslint-disable-next-line
         case "pen":
           ctx.beginPath();
           ctx.moveTo(startX, startY);
           break;
-
         case "rectangle":
           ctx.strokeStyle = color;
           break;
@@ -42,8 +43,8 @@ export default function App() {
           break;
         default:
           break;
+        }
       }
-    }
 
     function MouseMoveHandler(e) {
       if (!isDrawing) return;
@@ -52,6 +53,8 @@ export default function App() {
       const y = e.offsetY;
 
       switch (tool) {
+        case "eraser":
+        // eslint-disable-next-line
         case "pen":
           ctx.lineTo(x, y);
           ctx.stroke();
@@ -78,6 +81,7 @@ export default function App() {
     function MouseUpHandler() {
       isDrawing = false;
       ctx.beginPath(); 
+      ctx.globalCompositeOperation = "source-over";
     }
 
     canvas.addEventListener("mousedown", MouseDownHandler);
@@ -91,7 +95,7 @@ export default function App() {
       canvas.removeEventListener("mouseup", MouseUpHandler);
       canvas.removeEventListener("mouseleave", MouseUpHandler);
     };
-  }, [tool, color, size]);
+  },[tool, color, size]);
 
   return (
     <div>
@@ -99,7 +103,7 @@ export default function App() {
         <button onClick={() => setTool("pen")}>Pen</button>
         <button onClick={() => setTool("rectangle")}>Rectangle</button>
         <button onClick={() => setTool("circle")}>Circle</button>
-
+        <button onClick={() => setTool("eraser")}>Eraser</button>
         <input
           type="color"
           value={color}
