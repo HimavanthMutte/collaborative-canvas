@@ -72,6 +72,8 @@ export default function App() {
     let startY = 0;
     let snapshot = null;
 
+
+
     const MouseDownHandler = (e) => {
       isDrawing = true;
       startX = e.offsetX;
@@ -159,6 +161,19 @@ export default function App() {
     // eslint-disable-next-line
   }, [tool, color, size, historyStep]);
 
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    if (tool === "pen") {
+      canvas.style.cursor = `url('/cursors/pen.png') 0 24, auto`;
+    } else if (tool === "eraser") {
+      canvas.style.cursor = `url('/cursors/eraser.png') 0 24, auto`;
+    } else {
+      canvas.style.cursor = "crosshair";
+    }
+  }, [tool]);
+
   return (
     <div>
       <div style={{ marginBottom: 10 }}>
@@ -191,8 +206,7 @@ export default function App() {
         width={800}
         height={500}
         style={{
-          border: "1px solid black",
-          cursor: "crosshair"
+          border: "1px solid black"
         }}
       />
     </div>
