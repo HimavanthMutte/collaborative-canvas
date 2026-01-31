@@ -8,95 +8,48 @@ export default function App() {
   const [username, setUsername] = useState("");
   const [users, setUsers] = useState([]);
 
-  const canvasRef = useRef(null);
+  // Multi-Canvas Refs
+  const bgCanvasRef = useRef(null);
+  const fgCanvasRef = useRef(null);
+  const bgCtx = useRef(null);
+  const fgCtx = useRef(null);
+
   const [tool, setTool] = useState("pen");
   const [color, setColor] = useState("#000000");
   const [size, setSize] = useState(3);
 
   const [history, setHistory] = useState([]);
+  const lastRenderedIndex = useRef(0);
   const [remoteCursors, setRemoteCursors] = useState({});
-  const [activePaths, setActivePaths] = useState({});
+  const activePaths = useRef({}); // Using ref for active paths to avoid React re-renders on every point
 
   const isDrawing = useRef(false);
   const currentPath = useRef([]);
   const lastCursorEmit = useRef(0);
   const startPoint = useRef({ x: 0, y: 0 });
 
+  // Initialize contexts
   useEffect(() => {
-    socket.on("connect", () => {
-      console.log("Connected");
-    });
+    if (bgCanvasRef.current && fgCanvasRef.current) {
+      bgCtx.current = bgCanvasRef.current.getContext("2d");
+      fgCtx.current = fgCanvasRef.current.getContext("2d");
 
-    socket.on("init_state", (serverHistory) => {
-      setHistory(serverHistory);
-    });
-
-    socket.on("new_op", (op) => {
-      setHistory((prev) => [...prev, op]);
-      setActivePaths((prev) => {
-        const next = { ...prev };
-        delete next[op.userId];
-        return next;
-      });
-    });
-
-    socket.on("undo_op", (opId) => {
-      setHistory((prev) => prev.filter(op => op.id !== opId));
-    });
-
-    socket.on("user_update", (updatedUsers) => {
-      setUsers(updatedUsers);
-    });
-
-    socket.on("cursor_update", (data) => {
-      setRemoteCursors(prev => ({
-        ...prev,
-        [data.userId]: data
-      }));
-    });
-
-    socket.on("draw_step", (data) => {
-      if (data.type === "path") {
-        setActivePaths(prev => {
-          const userPath = prev[data.userId] || { points: [data.start] };
-          return {
-            ...prev,
-            [data.userId]: {
-              ...userPath,
-              points: [...userPath.points, data.end],
-              color: data.color,
-              width: data.width
-            }
-          };
-        });
-      }
-    });
-
-    return () => {
-      socket.off("connect");
-      socket.off("init_state");
-      socket.off("new_op");
-      socket.off("undo_op");
-      socket.off("user_update");
-      socket.off("cursor_update");
-      socket.off("draw_step");
-    };
-  }, []);
+      // Initial background fill
+      bgCtx.current.fillStyle = "white";
+      bgCtx.current.fillRect(0, 0, bgCanvasRef.current.width, bgCanvasRef.current.height);
+    }
+  }, [joined]);
 
   const drawOperation = useCallback((ctx, op) => {
+    if (!ctx) return;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.lineWidth = op.width;
-    ctx.strokeStyle = op.color;
-    ctx.fillStyle = op.color;
-
-    if (op.tool === "eraser") {
-      ctx.strokeStyle = "white";
-      ctx.fillStyle = "white";
-    }
+    ctx.strokeStyle = op.tool === "eraser" ? "white" : op.color;
+    ctx.fillStyle = op.tool === "eraser" ? "white" : op.color;
 
     if (op.type === "path") {
-      if (op.points.length > 0) {
+      if (op.points && op.points.length > 1) {
         ctx.beginPath();
         ctx.moveTo(op.points[0].x, op.points[0].y);
         for (let i = 1; i < op.points.length; i++) {
@@ -114,47 +67,114 @@ export default function App() {
     }
   }, []);
 
-  useEffect(() => {
-    if (!canvasRef.current) return;
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d");
+  // Foreground Rendering (Active Drawing & Previews)
+  const renderForeground = useCallback(() => {
+    if (!fgCtx.current) return;
+    const ctx = fgCtx.current;
+    ctx.clearRect(0, 0, fgCanvasRef.current.width, fgCanvasRef.current.height);
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    history.forEach((op) => {
-      drawOperation(ctx, op);
+    // 1. Draw remote active paths (Previews)
+    Object.values(activePaths.current).forEach(path => {
+      drawOperation(ctx, path);
     });
 
-    Object.values(activePaths).forEach(path => {
-      ctx.beginPath();
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.lineWidth = path.width;
-      ctx.strokeStyle = path.color;
-      if (path.points.length > 0) {
-        ctx.moveTo(path.points[0].x, path.points[0].y);
-        for (let i = 1; i < path.points.length; i++) {
-          ctx.lineTo(path.points[i].x, path.points[i].y);
-        }
-        ctx.stroke();
-      }
-    });
-
-    if (isDrawing.current && (tool === "pen" || tool === "eraser") && currentPath.current.length > 0) {
-      ctx.beginPath();
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.lineWidth = size;
-      ctx.strokeStyle = tool === "eraser" ? "white" : color;
-      ctx.moveTo(currentPath.current[0].x, currentPath.current[0].y);
-      for (let i = 1; i < currentPath.current.length; i++) {
-        ctx.lineTo(currentPath.current[i].x, currentPath.current[i].y);
-      }
-      ctx.stroke();
+    // 2. Draw local active path
+    if (isDrawing.current) {
+      const currentOp = {
+        type: (tool === "pen" || tool === "eraser") ? "path" : tool,
+        points: currentPath.current,
+        start: startPoint.current,
+        end: currentPath.current[currentPath.current.length - 1],
+        color: tool === "eraser" ? "white" : color,
+        width: size,
+        tool: tool
+      };
+      drawOperation(ctx, currentOp);
     }
-  }, [history, activePaths, tool, color, size, drawOperation]);
+  }, [tool, color, size, drawOperation]);
+
+  // Use ref for renderForeground to satisfy ESLint dependency rules without re-binding sockets
+  const renderForegroundRef = useRef(null);
+  renderForegroundRef.current = renderForeground;
+
+  useEffect(() => {
+    socket.on("connect", () => {
+      console.log("Connected");
+    });
+
+    socket.on("init_state", (serverHistory) => {
+      setHistory(serverHistory);
+      lastRenderedIndex.current = 0; // Trigger full redraw
+    });
+
+    socket.on("new_op", (op) => {
+      setHistory((prev) => [...prev, op]);
+      delete activePaths.current[op.userId];
+      if (renderForegroundRef.current) renderForegroundRef.current();
+    });
+
+    socket.on("undo_op", (opId) => {
+      setHistory((prev) => {
+        const newHistory = prev.filter(op => op.id !== opId);
+        lastRenderedIndex.current = 0; // Trigger full redraw on background
+        return newHistory;
+      });
+    });
+
+    socket.on("user_update", (updatedUsers) => {
+      setUsers(updatedUsers);
+    });
+
+    socket.on("cursor_update", (data) => {
+      setRemoteCursors(prev => ({
+        ...prev,
+        [data.userId]: data
+      }));
+    });
+
+    socket.on("draw_step", (data) => {
+      activePaths.current[data.userId] = {
+        type: data.type,
+        start: data.start,
+        end: data.end,
+        points: data.points, // For path tools
+        color: data.color,
+        width: data.width,
+        tool: data.tool
+      };
+      if (renderForegroundRef.current) renderForegroundRef.current();
+    });
+
+    return () => {
+      socket.off("connect");
+      socket.off("init_state");
+      socket.off("new_op");
+      socket.off("undo_op");
+      socket.off("user_update");
+      socket.off("cursor_update");
+      socket.off("draw_step");
+    };
+  }, []);
+
+  // Background Rendering (Persistence)
+  useEffect(() => {
+    if (!bgCtx.current) return;
+    const ctx = bgCtx.current;
+
+    // If history was reset (undo/init), clear and redraw all
+    if (lastRenderedIndex.current === 0) {
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, bgCanvasRef.current.width, bgCanvasRef.current.height);
+      history.forEach((op) => drawOperation(ctx, op));
+      lastRenderedIndex.current = history.length;
+    } else {
+      // Incremental render
+      for (let i = lastRenderedIndex.current; i < history.length; i++) {
+        drawOperation(ctx, history[i]);
+      }
+      lastRenderedIndex.current = history.length;
+    }
+  }, [history, drawOperation]);
 
   const handleJoin = () => {
     if (username && roomId) {
@@ -165,7 +185,7 @@ export default function App() {
   };
 
   const getCanvasCoordinates = (event) => {
-    const canvas = canvasRef.current;
+    const canvas = fgCanvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
@@ -181,10 +201,8 @@ export default function App() {
     const coords = getCanvasCoordinates(e);
     isDrawing.current = true;
     startPoint.current = coords;
-
-    if (tool === "pen" || tool === "eraser") {
-      currentPath.current = [coords];
-    }
+    currentPath.current = [coords];
+    renderForeground();
   };
 
   const handleMouseMove = (e) => {
@@ -199,48 +217,20 @@ export default function App() {
 
     if (!isDrawing.current) return;
 
-    if (tool === "pen" || tool === "eraser") {
-      const lastPoint = currentPath.current[currentPath.current.length - 1];
-      currentPath.current.push(coords);
+    currentPath.current.push(coords);
 
-      const ctx = canvasRef.current.getContext("2d");
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      ctx.lineWidth = size;
-      ctx.strokeStyle = tool === "eraser" ? "white" : color;
+    // Emit live preview step
+    socket.emit("draw_step", {
+      type: (tool === "pen" || tool === "eraser") ? "path" : tool,
+      start: startPoint.current,
+      end: coords,
+      points: currentPath.current, // Only for path
+      color: tool === "eraser" ? "white" : color,
+      width: size,
+      tool: tool
+    });
 
-      ctx.beginPath();
-      ctx.moveTo(lastPoint.x, lastPoint.y);
-      ctx.lineTo(x, y);
-      ctx.stroke();
-
-      socket.emit("draw_step", {
-        type: "path",
-        start: lastPoint,
-        end: coords,
-        color: tool === "eraser" ? "white" : color,
-        width: size
-      });
-
-    } else if (tool === "rectangle" || tool === "circle") {
-      const ctx = canvasRef.current.getContext("2d");
-      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      ctx.fillStyle = "white";
-      ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      history.forEach(op => drawOperation(ctx, op));
-
-      ctx.lineWidth = size;
-      ctx.strokeStyle = color;
-
-      if (tool === "rectangle") {
-        ctx.strokeRect(startPoint.current.x, startPoint.current.y, x - startPoint.current.x, y - startPoint.current.y);
-      } else if (tool === "circle") {
-        const radius = Math.sqrt(Math.pow(x - startPoint.current.x, 2) + Math.pow(y - startPoint.current.y, 2));
-        ctx.beginPath();
-        ctx.arc(startPoint.current.x, startPoint.current.y, radius, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    }
+    renderForeground();
   };
 
   const handleMouseUp = (e) => {
@@ -248,41 +238,18 @@ export default function App() {
     isDrawing.current = false;
 
     const coords = getCanvasCoordinates(e);
-    let op = null;
+    let op = {
+      type: (tool === "pen" || tool === "eraser") ? "path" : tool,
+      points: [...currentPath.current],
+      start: startPoint.current,
+      end: coords,
+      color: color,
+      width: size,
+      tool: tool
+    };
 
-    if (tool === "pen" || tool === "eraser") {
-      if (currentPath.current.length > 0) {
-        op = {
-          type: "path",
-          points: [...currentPath.current],
-          color: color,
-          width: size,
-          tool: tool
-        };
-      }
-    } else if (tool === "rectangle") {
-      op = {
-        type: "rectangle",
-        start: startPoint.current,
-        end: coords,
-        color: color,
-        width: size,
-        tool: tool
-      };
-    } else if (tool === "circle") {
-      op = {
-        type: "circle",
-        start: startPoint.current,
-        end: coords,
-        color: color,
-        width: size,
-        tool: tool
-      };
-    }
-
-    if (op) {
-      socket.emit("draw_op", op);
-    }
+    socket.emit("draw_op", op);
+    renderForeground();
   };
 
   const handleUndo = () => {
@@ -317,20 +284,25 @@ export default function App() {
   return (
     <div className="App">
       <div className="header" style={{ padding: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
-        <h3>Room: {roomId}</h3>
-        <div>Users: {users.map(u => u.username).join(', ')}</div>
+        <h3 style={{ margin: 0 }}>Room: {roomId}</h3>
+        <div style={{ fontSize: '14px', color: '#666' }}>Users: {users.map(u => u.username).join(', ')}</div>
       </div>
 
-      <div className="toolbar" style={{ marginBottom: 10 }}>
-        <button onClick={() => setTool("pen")}>Pen</button>
-        <button onClick={() => setTool("rectangle")}>Rectangle</button>
-        <button onClick={() => setTool("circle")}>Circle</button>
-        <button onClick={() => setTool("eraser")}>Eraser</button>
+      <div className="toolbar" style={{ padding: '10px', background: '#f5f5f5', borderBottom: '1px solid #ddd', display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <div className="tool-group">
+          <button className={tool === "pen" ? "active" : ""} onClick={() => setTool("pen")}>Pen</button>
+          <button className={tool === "rectangle" ? "active" : ""} onClick={() => setTool("rectangle")}>Rect</button>
+          <button className={tool === "circle" ? "active" : ""} onClick={() => setTool("circle")}>Circle</button>
+          <button className={tool === "eraser" ? "active" : ""} onClick={() => setTool("eraser")}>Eraser</button>
+        </div>
+
+        <div className="divider" style={{ width: 1, height: 24, background: '#ccc' }} />
+
         <input
           type="color"
           value={color}
           onChange={(e) => setColor(e.target.value)}
-          style={{ marginLeft: 10 }}
+          disabled={tool === "eraser"}
         />
 
         <input
@@ -339,42 +311,71 @@ export default function App() {
           max="20"
           value={size}
           onChange={(e) => setSize(Number(e.target.value))}
-          style={{ marginLeft: 10 }}
         />
-        <span>{size}px</span>
+        <span style={{ minWidth: "35px" }}>{size}px</span>
 
-        <button onClick={handleUndo} style={{ marginLeft: 20 }}>Undo</button>
+        <div className="divider" style={{ width: 1, height: 24, background: '#ccc' }} />
+
+        <button onClick={handleUndo}>Undo</button>
         <button onClick={handleRedo}>Redo</button>
       </div>
 
-      <div style={{ position: 'relative', width: 800, height: 500, margin: '0 auto', border: '1px solid black' }}>
+      <div style={{
+        position: 'relative',
+        width: '100%',
+        maxWidth: 800,
+        aspectRatio: '800 / 500',
+        margin: '20px auto',
+        border: '1px solid #ccc',
+        boxShadow: '0 0 10px rgba(0,0,0,0.1)',
+        backgroundColor: 'white'
+      }}>
+        {/* Background Canvas: Static history */}
         <canvas
-          ref={canvasRef}
+          ref={bgCanvasRef}
+          width={800}
+          height={500}
+          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1 }}
+        />
+
+        {/* Foreground Canvas: Active drawing, previews, and mouse events */}
+        <canvas
+          ref={fgCanvasRef}
           width={800}
           height={500}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
-          style={{ cursor: 'crosshair', display: 'block' }}
+          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 2, cursor: 'crosshair' }}
         />
 
         {Object.values(remoteCursors).map(cursor => (
           <div key={cursor.userId} style={{
             position: 'absolute',
-            top: cursor.y,
-            left: cursor.x,
+            top: `${(cursor.y / 500) * 100}%`,
+            left: `${(cursor.x / 800) * 100}%`,
             pointerEvents: 'none',
             transform: 'translate(-50%, -50%)',
             zIndex: 10
           }}>
             <div style={{
-              width: 10,
-              height: 10,
+              width: 12,
+              height: 12,
               borderRadius: '50%',
-              backgroundColor: cursor.color || 'red'
+              backgroundColor: cursor.color || 'red',
+              border: '2px solid white',
+              boxShadow: '0 0 4px rgba(0,0,0,0.3)'
             }} />
-            <span style={{ fontSize: 10, backgroundColor: 'rgba(255,255,255,0.7)', padding: 2 }}>{cursor.username}</span>
+            <span style={{
+              fontSize: 10,
+              backgroundColor: 'rgba(255,255,255,0.9)',
+              padding: '2px 4px',
+              borderRadius: 4,
+              border: '1px solid #ccc',
+              marginLeft: 8,
+              whiteSpace: 'nowrap'
+            }}>{cursor.username}</span>
           </div>
         ))}
       </div>

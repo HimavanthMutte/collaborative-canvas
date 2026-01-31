@@ -2,7 +2,9 @@
 
 # dependencies
 /client/node_modules
-/server/node_modules
+/server/node_modules  
+ARCHITECTURE.md
+README.md
 /.pnp
 .pnp.js
 
