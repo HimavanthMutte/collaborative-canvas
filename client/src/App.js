@@ -356,8 +356,9 @@ export default function App() {
             top: `${(cursor.y / 500) * 100}%`,
             left: `${(cursor.x / 800) * 100}%`,
             pointerEvents: 'none',
-            transform: 'translate(-50%, -50%)',
-            zIndex: 10
+            zIndex: 10,
+            display: 'flex',
+            alignItems: 'center'
           }}>
             <div style={{
               width: 12,
@@ -365,7 +366,9 @@ export default function App() {
               borderRadius: '50%',
               backgroundColor: cursor.color || 'red',
               border: '2px solid white',
-              boxShadow: '0 0 4px rgba(0,0,0,0.3)'
+              boxShadow: '0 0 4px rgba(0,0,0,0.3)',
+              transform: 'translate(-50%, -50%)',
+              flexShrink: 0
             }} />
             <span style={{
               fontSize: 10,
@@ -373,8 +376,10 @@ export default function App() {
               padding: '2px 4px',
               borderRadius: 4,
               border: '1px solid #ccc',
-              marginLeft: 8,
-              whiteSpace: 'nowrap'
+              whiteSpace: 'nowrap',
+              position: 'absolute',
+              left: 10,
+              top: 5
             }}>{cursor.username}</span>
           </div>
         ))}
