@@ -39,9 +39,15 @@ const redo = (roomId) => {
     return op;
 };
 
+const clearRoom = (roomId) => {
+    delete roomHistories[roomId];
+    delete roomRedoStacks[roomId];
+};
+
 module.exports = {
     getHistory,
     addOperation,
     undo,
-    redo
+    redo,
+    clearRoom
 };

@@ -7,12 +7,8 @@ export default function App() {
   const [roomId, setRoomId] = useState("room1");
   const [username, setUsername] = useState("");
   const [users, setUsers] = useState([]);
-
-  // Multi-Canvas Refs
-  const bgCanvasRef = useRef(null);
-  const fgCanvasRef = useRef(null);
-  const bgCtx = useRef(null);
-  const fgCtx = useRef(null);
+  const [errorMessage, setErrorMessage] = useState("");
+  const [isOnline, setIsOnline] = useState(true);
 
   const [tool, setTool] = useState("pen");
   const [color, setColor] = useState("#000000");
@@ -21,27 +17,37 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const lastRenderedIndex = useRef(0);
   const [remoteCursors, setRemoteCursors] = useState({});
-  const activePaths = useRef({}); // Using ref for active paths to avoid React re-renders on every point
+  const activePaths = useRef({});
+
+  const queuedOperations = useRef([]);
+
+  const bgCanvasRef = useRef(null);
+  const fgCanvasRef = useRef(null);
+  const bgCtx = useRef(null);
+  const fgCtx = useRef(null);
 
   const isDrawing = useRef(false);
   const currentPath = useRef([]);
   const lastCursorEmit = useRef(0);
   const startPoint = useRef({ x: 0, y: 0 });
 
-  // Initialize contexts
   useEffect(() => {
-    if (bgCanvasRef.current && fgCanvasRef.current) {
-      bgCtx.current = bgCanvasRef.current.getContext("2d");
-      fgCtx.current = fgCanvasRef.current.getContext("2d");
+    if (joined && bgCanvasRef.current && fgCanvasRef.current) {
+      try {
+        bgCtx.current = bgCanvasRef.current.getContext("2d");
+        fgCtx.current = fgCanvasRef.current.getContext("2d");
 
-      // Initial background fill
-      bgCtx.current.fillStyle = "white";
-      bgCtx.current.fillRect(0, 0, bgCanvasRef.current.width, bgCanvasRef.current.height);
+        bgCtx.current.fillStyle = "white";
+        bgCtx.current.fillRect(0, 0, 800, 500);
+      } catch (err) {
+        setErrorMessage("Could not start canvas. Please refresh.");
+      }
     }
   }, [joined]);
 
   const drawOperation = useCallback((ctx, op) => {
-    if (!ctx) return;
+    if (!ctx || !op) return;
+
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     ctx.lineWidth = op.width;
@@ -67,20 +73,18 @@ export default function App() {
     }
   }, []);
 
-  // Foreground Rendering (Active Drawing & Previews)
   const renderForeground = useCallback(() => {
     if (!fgCtx.current) return;
     const ctx = fgCtx.current;
-    ctx.clearRect(0, 0, fgCanvasRef.current.width, fgCanvasRef.current.height);
 
-    // 1. Draw remote active paths (Previews)
+    ctx.clearRect(0, 0, 800, 500);
+
     Object.values(activePaths.current).forEach(path => {
       drawOperation(ctx, path);
     });
 
-    // 2. Draw local active path
     if (isDrawing.current) {
-      const currentOp = {
+      const liveOp = {
         type: (tool === "pen" || tool === "eraser") ? "path" : tool,
         points: currentPath.current,
         start: startPoint.current,
@@ -89,22 +93,36 @@ export default function App() {
         width: size,
         tool: tool
       };
-      drawOperation(ctx, currentOp);
+      drawOperation(ctx, liveOp);
     }
   }, [tool, color, size, drawOperation]);
 
-  // Use ref for renderForeground to satisfy ESLint dependency rules without re-binding sockets
   const renderForegroundRef = useRef(null);
   renderForegroundRef.current = renderForeground;
 
   useEffect(() => {
     socket.on("connect", () => {
-      console.log("Connected");
+      setIsOnline(true);
+      setErrorMessage("");
+
+      if (queuedOperations.current.length > 0) {
+        queuedOperations.current.forEach(op => socket.emit("draw_op", op));
+        queuedOperations.current = [];
+      }
+    });
+
+    socket.on("disconnect", () => {
+      setIsOnline(false);
+    });
+
+    socket.on("connect_error", (err) => {
+      setIsOnline(false);
+      setErrorMessage("Network issue. Trying to reconnect...");
     });
 
     socket.on("init_state", (serverHistory) => {
       setHistory(serverHistory);
-      lastRenderedIndex.current = 0; // Trigger full redraw
+      lastRenderedIndex.current = 0;
     });
 
     socket.on("new_op", (op) => {
@@ -115,14 +133,23 @@ export default function App() {
 
     socket.on("undo_op", (opId) => {
       setHistory((prev) => {
-        const newHistory = prev.filter(op => op.id !== opId);
-        lastRenderedIndex.current = 0; // Trigger full redraw on background
+        const newHistory = prev.filter(item => item.id !== opId);
+        lastRenderedIndex.current = 0;
         return newHistory;
       });
     });
 
     socket.on("user_update", (updatedUsers) => {
       setUsers(updatedUsers);
+
+      const currentIds = updatedUsers.map(u => u.id || u.userId);
+      setRemoteCursors(prev => {
+        const clean = { ...prev };
+        Object.keys(clean).forEach(id => {
+          if (!currentIds.includes(id)) delete clean[id];
+        });
+        return clean;
+      });
     });
 
     socket.on("cursor_update", (data) => {
@@ -137,7 +164,7 @@ export default function App() {
         type: data.type,
         start: data.start,
         end: data.end,
-        points: data.points, // For path tools
+        points: data.points,
         color: data.color,
         width: data.width,
         tool: data.tool
@@ -147,6 +174,8 @@ export default function App() {
 
     return () => {
       socket.off("connect");
+      socket.off("disconnect");
+      socket.off("connect_error");
       socket.off("init_state");
       socket.off("new_op");
       socket.off("undo_op");
@@ -156,19 +185,16 @@ export default function App() {
     };
   }, []);
 
-  // Background Rendering (Persistence)
   useEffect(() => {
     if (!bgCtx.current) return;
     const ctx = bgCtx.current;
 
-    // If history was reset (undo/init), clear and redraw all
     if (lastRenderedIndex.current === 0) {
       ctx.fillStyle = "white";
-      ctx.fillRect(0, 0, bgCanvasRef.current.width, bgCanvasRef.current.height);
+      ctx.fillRect(0, 0, 800, 500);
       history.forEach((op) => drawOperation(ctx, op));
       lastRenderedIndex.current = history.length;
     } else {
-      // Incremental render
       for (let i = lastRenderedIndex.current; i < history.length; i++) {
         drawOperation(ctx, history[i]);
       }
@@ -177,16 +203,29 @@ export default function App() {
   }, [history, drawOperation]);
 
   const handleJoin = () => {
-    if (username && roomId) {
+    if (!username.trim()) {
+      setErrorMessage("Please enter a username!");
+      return;
+    }
+    if (!roomId.trim()) {
+      setErrorMessage("Please enter a room ID!");
+      return;
+    }
+
+    try {
       socket.connect();
       socket.emit("join_room", { username, roomId });
       setJoined(true);
+      setErrorMessage("");
+    } catch (err) {
+      setErrorMessage("Could not join room. Try again.");
     }
   };
 
   const getCanvasCoordinates = (event) => {
     const canvas = fgCanvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
+
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
@@ -207,28 +246,30 @@ export default function App() {
 
   const handleMouseMove = (e) => {
     const coords = getCanvasCoordinates(e);
-    const { x, y } = coords;
 
     const now = Date.now();
-    if (now - lastCursorEmit.current > 50) {
-      socket.emit("cursor_move", { x, y });
-      lastCursorEmit.current = now;
+    if (now - lastCursorEmit.current > 60) {
+      try {
+        socket.emit("cursor_move", { x: coords.x, y: coords.y });
+        lastCursorEmit.current = now;
+      } catch (err) { }
     }
 
     if (!isDrawing.current) return;
 
     currentPath.current.push(coords);
 
-    // Emit live preview step
-    socket.emit("draw_step", {
-      type: (tool === "pen" || tool === "eraser") ? "path" : tool,
-      start: startPoint.current,
-      end: coords,
-      points: currentPath.current, // Only for path
-      color: tool === "eraser" ? "white" : color,
-      width: size,
-      tool: tool
-    });
+    try {
+      socket.emit("draw_step", {
+        type: (tool === "pen" || tool === "eraser") ? "path" : tool,
+        start: startPoint.current,
+        end: coords,
+        points: currentPath.current,
+        color: tool === "eraser" ? "white" : color,
+        width: size,
+        tool: tool
+      });
+    } catch (err) { }
 
     renderForeground();
   };
@@ -238,7 +279,8 @@ export default function App() {
     isDrawing.current = false;
 
     const coords = getCanvasCoordinates(e);
-    let op = {
+
+    const finalOp = {
       type: (tool === "pen" || tool === "eraser") ? "path" : tool,
       points: [...currentPath.current],
       start: startPoint.current,
@@ -248,7 +290,16 @@ export default function App() {
       tool: tool
     };
 
-    socket.emit("draw_op", op);
+    if (socket.connected) {
+      try {
+        socket.emit("draw_op", finalOp);
+      } catch (err) {
+        queuedOperations.current.push(finalOp);
+      }
+    } else {
+      queuedOperations.current.push(finalOp);
+    }
+
     renderForeground();
   };
 
@@ -264,61 +315,84 @@ export default function App() {
     return (
       <div className="login-container" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: 100 }}>
         <h1>Collaborative Canvas</h1>
+        <p>Drawing fun for everyone!</p>
+
+        {errorMessage && <div style={{ color: 'red', marginBottom: 10 }}>{errorMessage}</div>}
+
         <input
-          placeholder="Username"
+          placeholder="Your name"
           value={username}
           onChange={e => setUsername(e.target.value)}
-          style={{ padding: 10, margin: 10 }}
+          style={{ padding: 10, margin: 10, width: 250, borderRadius: 5, border: '1px solid #ccc' }}
         />
         <input
           placeholder="Room ID"
           value={roomId}
           onChange={e => setRoomId(e.target.value)}
-          style={{ padding: 10, margin: 10 }}
+          style={{ padding: 10, margin: 10, width: 250, borderRadius: 5, border: '1px solid #ccc' }}
         />
-        <button onClick={handleJoin} style={{ padding: 10, width: 200 }}>Join Room</button>
+        <button onClick={handleJoin} style={{ padding: 10, width: 270, backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: 5, cursor: 'pointer' }}>
+          JOIN DRAWING ROOM
+        </button>
       </div>
     );
   }
 
   return (
     <div className="App">
-      <div className="header" style={{ padding: 10, display: 'flex', gap: 10, alignItems: 'center' }}>
-        <h3 style={{ margin: 0 }}>Room: {roomId}</h3>
-        <div style={{ fontSize: '14px', color: '#666' }}>Users: {users.map(u => u.username).join(', ')}</div>
+      <div className="header" style={{ padding: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#eee' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 15 }}>
+          <h3 style={{ margin: 0 }}>Room: {roomId}</h3>
+          <span style={{ fontSize: '12px', color: isOnline ? 'green' : 'red' }}>
+            {isOnline ? "● Online" : "● Offline (Trying to connect...)"}
+          </span>
+        </div>
+        <div style={{ fontSize: '14px', color: '#666' }}>
+          Artists here: {users.map(u => u.username).join(', ')}
+        </div>
       </div>
 
-      <div className="toolbar" style={{ padding: '10px', background: '#f5f5f5', borderBottom: '1px solid #ddd', display: 'flex', gap: '10px', alignItems: 'center' }}>
-        <div className="tool-group">
-          <button className={tool === "pen" ? "active" : ""} onClick={() => setTool("pen")}>Pen</button>
-          <button className={tool === "rectangle" ? "active" : ""} onClick={() => setTool("rectangle")}>Rect</button>
-          <button className={tool === "circle" ? "active" : ""} onClick={() => setTool("circle")}>Circle</button>
-          <button className={tool === "eraser" ? "active" : ""} onClick={() => setTool("eraser")}>Eraser</button>
+      <div className="toolbar" style={{ padding: '10px', background: '#f8f9fa', borderBottom: '1px solid #ddd', display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div className="tool-group" style={{ display: 'flex', gap: 5 }}>
+          <button className={tool === "pen" ? "active" : ""} onClick={() => setTool("pen")} title="Draw lines">Pen</button>
+          <button className={tool === "rectangle" ? "active" : ""} onClick={() => setTool("rectangle")} title="Draw rectangles">Rect</button>
+          <button className={tool === "circle" ? "active" : ""} onClick={() => setTool("circle")} title="Draw circles">Circle</button>
+          <button className={tool === "eraser" ? "active" : ""} onClick={() => setTool("eraser")} title="Erase parts">Eraser</button>
         </div>
 
-        <div className="divider" style={{ width: 1, height: 24, background: '#ccc' }} />
+        <div style={{ width: 1, height: 24, background: '#ccc' }} />
 
-        <input
-          type="color"
-          value={color}
-          onChange={(e) => setColor(e.target.value)}
-          disabled={tool === "eraser"}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <label>Color:</label>
+          <input
+            type="color"
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+            disabled={tool === "eraser"}
+          />
+        </div>
 
-        <input
-          type="range"
-          min="1"
-          max="20"
-          value={size}
-          onChange={(e) => setSize(Number(e.target.value))}
-        />
-        <span style={{ minWidth: "35px" }}>{size}px</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <label>Size:</label>
+          <input
+            type="range"
+            min="1"
+            max="25"
+            value={size}
+            onChange={(e) => setSize(Number(e.target.value))}
+          />
+          <span style={{ minWidth: "30px" }}>{size}px</span>
+        </div>
 
-        <div className="divider" style={{ width: 1, height: 24, background: '#ccc' }} />
+        <div style={{ width: 1, height: 24, background: '#ccc' }} />
 
-        <button onClick={handleUndo}>Undo</button>
-        <button onClick={handleRedo}>Redo</button>
+        <div style={{ display: 'flex', gap: 5 }}>
+          <button onClick={handleUndo} title="Undo last action">Undo</button>
+          <button onClick={handleRedo} title="Redo last action">Redo</button>
+        </div>
       </div>
+
+      {errorMessage && <div style={{ background: '#ffebee', color: '#c62828', padding: 10 }}>{errorMessage}</div>}
 
       <div style={{
         position: 'relative',
@@ -326,11 +400,10 @@ export default function App() {
         maxWidth: 800,
         aspectRatio: '800 / 500',
         margin: '20px auto',
-        border: '1px solid #ccc',
-        boxShadow: '0 0 10px rgba(0,0,0,0.1)',
+        border: '2px solid #333',
+        boxShadow: '0 4px 15px rgba(0,0,0,0.2)',
         backgroundColor: 'white'
       }}>
-        {/* Background Canvas: Static history */}
         <canvas
           ref={bgCanvasRef}
           width={800}
@@ -338,7 +411,6 @@ export default function App() {
           style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 1 }}
         />
 
-        {/* Foreground Canvas: Active drawing, previews, and mouse events */}
         <canvas
           ref={fgCanvasRef}
           width={800}
@@ -350,11 +422,11 @@ export default function App() {
           style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 2, cursor: 'crosshair' }}
         />
 
-        {Object.values(remoteCursors).map(cursor => (
-          <div key={cursor.userId} style={{
+        {Object.values(remoteCursors).map(person => (
+          <div key={person.userId} style={{
             position: 'absolute',
-            top: `${(cursor.y / 500) * 100}%`,
-            left: `${(cursor.x / 800) * 100}%`,
+            top: `${(person.y / 500) * 100}%`,
+            left: `${(person.x / 800) * 100}%`,
             pointerEvents: 'none',
             zIndex: 10,
             display: 'flex',
@@ -364,7 +436,7 @@ export default function App() {
               width: 12,
               height: 12,
               borderRadius: '50%',
-              backgroundColor: cursor.color || 'red',
+              backgroundColor: person.color || 'red',
               border: '2px solid white',
               boxShadow: '0 0 4px rgba(0,0,0,0.3)',
               transform: 'translate(-50%, -50%)',
@@ -373,14 +445,15 @@ export default function App() {
             <span style={{
               fontSize: 10,
               backgroundColor: 'rgba(255,255,255,0.9)',
-              padding: '2px 4px',
+              padding: '2px 6px',
               borderRadius: 4,
               border: '1px solid #ccc',
               whiteSpace: 'nowrap',
               position: 'absolute',
-              left: 10,
-              top: 5
-            }}>{cursor.username}</span>
+              left: 12,
+              top: 4,
+              fontWeight: 'bold'
+            }}>{person.username}</span>
           </div>
         ))}
       </div>

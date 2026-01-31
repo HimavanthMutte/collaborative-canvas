@@ -4,7 +4,7 @@ const { Server } = require("socket.io");
 const cors = require("cors");
 
 const { userJoin, getCurrentUser, userLeave, getRoomUsers } = require("./rooms");
-const { getHistory, addOperation, undo, redo } = require("./drawing-state");
+const { getHistory, addOperation, undo, redo, clearRoom } = require("./drawing-state");
 
 const app = express();
 app.use(cors());
@@ -20,77 +20,98 @@ const io = new Server(server, {
 
 io.on("connection", (socket) => {
     socket.on("join_room", (data) => {
-        const { username, roomId } = data;
-        socket.join(roomId);
+        try {
+            const { username, roomId } = data;
+            if (!username || !roomId) return;
 
-        const user = userJoin(socket.id, username, roomId);
-        const history = getHistory(roomId);
+            socket.join(roomId);
 
-        socket.emit("init_state", history);
-        io.to(roomId).emit("user_update", getRoomUsers(roomId));
+            const user = userJoin(socket.id, username, roomId);
+            const history = getHistory(roomId);
+
+            socket.emit("init_state", history);
+            io.to(roomId).emit("user_update", getRoomUsers(roomId));
+        } catch (err) { }
     });
 
     socket.on("draw_op", (data) => {
-        const user = getCurrentUser(socket.id);
-        if (!user) return;
+        try {
+            const user = getCurrentUser(socket.id);
+            if (!user) return;
 
-        const operation = {
-            ...data,
-            id: Date.now() + Math.random(),
-            userId: user.id,
-            username: user.username
-        };
-        addOperation(user.roomId, operation);
-        io.to(user.roomId).emit("new_op", operation);
+            const operation = {
+                ...data,
+                id: Date.now() + Math.random(),
+                userId: user.id,
+                username: user.username
+            };
+
+            addOperation(user.roomId, operation);
+            io.to(user.roomId).emit("new_op", operation);
+        } catch (err) { }
     });
 
     socket.on("draw_step", (data) => {
-        const user = getCurrentUser(socket.id);
-        if (!user) return;
-        socket.to(user.roomId).emit("draw_step", { ...data, userId: user.id });
+        try {
+            const user = getCurrentUser(socket.id);
+            if (!user) return;
+            socket.to(user.roomId).emit("draw_step", { ...data, userId: user.id });
+        } catch (err) { }
     });
 
     socket.on("undo", () => {
-        const user = getCurrentUser(socket.id);
-        if (!user) return;
+        try {
+            const user = getCurrentUser(socket.id);
+            if (!user) return;
 
-        const undoneOp = undo(user.roomId);
-        if (undoneOp) {
-            io.to(user.roomId).emit("undo_op", undoneOp.id);
-        }
+            const undoneOp = undo(user.roomId);
+            if (undoneOp) {
+                io.to(user.roomId).emit("undo_op", undoneOp.id);
+            }
+        } catch (err) { }
     });
 
     socket.on("redo", () => {
-        const user = getCurrentUser(socket.id);
-        if (!user) return;
+        try {
+            const user = getCurrentUser(socket.id);
+            if (!user) return;
 
-        const redoneOp = redo(user.roomId);
-        if (redoneOp) {
-            io.to(user.roomId).emit("new_op", redoneOp);
-        }
+            const redoneOp = redo(user.roomId);
+            if (redoneOp) {
+                io.to(user.roomId).emit("new_op", redoneOp);
+            }
+        } catch (err) { }
     });
 
     socket.on("cursor_move", (data) => {
-        const user = getCurrentUser(socket.id);
-        if (!user) return;
-        socket.to(user.roomId).emit("cursor_update", {
-            userId: user.id,
-            username: user.username,
-            color: user.color,
-            x: data.x,
-            y: data.y
-        });
+        try {
+            const user = getCurrentUser(socket.id);
+            if (!user) return;
+            socket.to(user.roomId).emit("cursor_update", {
+                userId: user.id,
+                username: user.username,
+                color: user.color,
+                x: data.x,
+                y: data.y
+            });
+        } catch (err) { }
     });
 
     socket.on("disconnect", () => {
-        const user = userLeave(socket.id);
-        if (user) {
-            io.to(user.roomId).emit("user_update", getRoomUsers(user.roomId));
-        }
+        try {
+            const user = userLeave(socket.id);
+            if (user) {
+                const remainingUsers = getRoomUsers(user.roomId);
+                if (remainingUsers.length === 0) {
+                    clearRoom(user.roomId);
+                } else {
+                    io.to(user.roomId).emit("user_update", remainingUsers);
+                }
+            }
+        } catch (err) { }
     });
 });
 
 const PORT = 3001;
 server.listen(PORT, () => {
-    console.log(`SERVER RUNNING ON PORT ${PORT}`);
 });
