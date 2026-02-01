@@ -29,18 +29,18 @@ sequenceDiagram
 
 I use Socket.io for all communication between the browser and my server.
 
-| Event | Direction | What it does |
-|-------|-----------|-------------|
-| `join_room` | Client -> Server | I send my username and the room I want to enter. |
-| `init_state` | Server -> Client | The server sends me all the drawings already in that room. |
-| `draw_step` | Client <-> Server | Sends small segments while I'm still moving the mouse. |
-| `draw_op`   | Client -> Server | Sends the final shape data (type, color, size) when I let go of the mouse. |
-| `new_op`    | Server -> Client | Tells everyone to permanently draw a new shape on their canvas. |
-| `undo`      | Client -> Server | I request to undo my last action. |
-| `undo_op`   | Server -> Client | Tells all clients to remove a specific shape by its ID. |
-| `redo`      | Client -> Server | I request to bring back the last thing I undid. |
-| `cursor_move`| Client -> Server | Sends my current mouse X and Y coordinates. |
-| `cursor_update`| Server -> Client| Shows me where other people's cursors are moving. |
+| Event          | Direction        | What it does                                                               |
+|----------------|------------------|----------------------------------------------------------------------------|
+| `join_room`    | Client -> Server | I send my username and the room I want to enter.                           |
+| `init_state`   | Server -> Client | The server sends me all the drawings already in that room.                 |
+| `draw_step`    | Client <-> Server| Sends small segments while I'm still moving the mouse.                     |
+| `draw_op`      | Client -> Server | Sends the final shape data (type, color, size) when I let go of the mouse. |
+| `new_op`       | Server -> Client | Tells everyone to permanently draw a new shape on their canvas.            |
+| `undo`         | Client -> Server | I request to undo my last action.                                          |
+| `undo_op`      | Server -> Client | Tells all clients to remove a specific shape by its ID.                    |
+| `redo`         | Client -> Server | I request to bring back the last thing I undid.                            |
+| `cursor_move`  | Client -> Server | Sends my current mouse X and Y coordinates.                                |
+| `cursor_update`| Server -> Client| Shows me where other people's cursors are moving.                           |
 
 ## How Undo / Redo Works
 

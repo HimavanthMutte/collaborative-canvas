@@ -23,6 +23,14 @@ const removeUserFromList = (socketId) => {
     }
 };
 
+// I added this to help clean up old sessions if someone refreshes with the same name
+const removeUserByUsername = (username, roomId) => {
+    const userIndex = currentUsers.findIndex((user) => user.username === username && user.roomId === roomId);
+    if (userIndex !== -1) {
+        return currentUsers.splice(userIndex, 1)[0];
+    }
+};
+
 // This gives me a list of all people in a specific room
 const getAllUsersInRoom = (roomId) => {
     return currentUsers.filter((user) => user.roomId === roomId);
@@ -38,10 +46,11 @@ function generateRandomColor() {
     return colorString;
 }
 
-// Exporting these so we can use them in my main server file
+// Exporting these so I can use them in my main server file
 module.exports = {
     addUserToRoom,
     findUserById,
     removeUserFromList,
+    removeUserByUsername,
     getAllUsersInRoom
 };

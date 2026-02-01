@@ -15,31 +15,31 @@ export default function App() {
   const [selectedColor, setSelectedColor] = useState("#000000");
   const [brushThickness, setBrushThickness] = useState(3);
 
-  // This is where we can store everything drawn on the canvas so far
+  // This is where I store everything drawn on the canvas so far
   const [globalDrawingHistory, setGlobalDrawingHistory] = useState([]);
 
-  // We use this to keep track of what weve already painted on the background canvas
+  // I use this to keep track of what I've already painted on the background canvas
   const lastRenderedActionIndex = useRef(0);
 
   const [otherUserCursors, setOtherUserCursors] = useState({});
   const liveDrawingPathsFromOthers = useRef({});
 
-  // If the internet disconnects, we can keep our drawings here and send them later
+  // If the internet disconnects, I can keep my drawings here and send them later
   const offlineDrawingQueue = useRef([]);
 
-  // These are references to our two canvas elements
+  // These are references to my two canvas elements
   const backgroundCanvasRef = useRef(null);
   const foregroundCanvasRef = useRef(null);
   const backgroundContext = useRef(null);
   const foregroundContext = useRef(null);
 
-  // These help us track if we are currently clicking and moving the mouse
+  // These help me track if I am currently clicking and moving the mouse
   const amIDrawingNow = useRef(false);
   const myCurrentPathPoints = useRef([]);
   const timeOfLastCursorSend = useRef(0);
   const startingClickPosition = useRef({ x: 0, y: 0 });
 
-  // This runs when we join the room to setup the canvas contexts
+  // This runs when I join the room to setup the canvas contexts
   useEffect(() => {
     if (hasJoinedRoom && backgroundCanvasRef.current && foregroundCanvasRef.current) {
       try {
@@ -63,7 +63,7 @@ export default function App() {
     ctx.lineJoin = "round";
     ctx.lineWidth = data.width;
 
-    // If it's the eraser, we just use white color to "hide" what's underneath
+    // If it's the eraser, I just use white color to "hide" what's underneath
     ctx.strokeStyle = data.tool === "eraser" ? "white" : data.color;
     ctx.fillStyle = data.tool === "eraser" ? "white" : data.color;
 
@@ -99,7 +99,7 @@ export default function App() {
       performDrawAction(ctx, path);
     });
 
-    // Draw what we are currently drawing right now
+    // Draw what I am currently drawing right now
     if (amIDrawingNow.current) {
       const myLiveAction = {
         type: (currentDrawingTool === "pen" || currentDrawingTool === "eraser") ? "path" : currentDrawingTool,
@@ -140,7 +140,7 @@ export default function App() {
       setErrorMessage("Lost connection to server. Hang on...");
     });
 
-    // The server sends the whole history when we join
+    // The server sends the whole history when I join
     socket.on("init_state", (historyFromServer) => {
       setGlobalDrawingHistory(historyFromServer);
       lastRenderedActionIndex.current = 0; // Force a full redraw
@@ -220,7 +220,7 @@ export default function App() {
     if (!backgroundContext.current) return;
     const ctx = backgroundContext.current;
 
-    // If we need a full redraw
+    // If I need a full redraw
     if (lastRenderedActionIndex.current === 0) {
       ctx.fillStyle = "white";
       ctx.fillRect(0, 0, 800, 500);

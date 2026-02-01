@@ -9,7 +9,7 @@ const { getRoomHistory, saveNewOperation, undoLastAction, redoLastAction, remove
 
 const app = express();
 app.use(cors()); // Used CORS so my React app can talk to this server
-
+require("dotenv").config();
 // Created the HTTP server and then connected Socket.io to it
 const server = http.createServer(app);
 
@@ -23,11 +23,18 @@ const io = new Server(server, {
 // This is where the magic happens when a user connects
 io.on("connection", (socket) => {
 
+    // A simple ping to verify connectivity
+    socket.on("ping", () => {
+        socket.emit("pong");
+    });
+
     // When a user hits the 'Join' button in my React app
     socket.on("join_room", (userData) => {
         try {
             const { username, roomId } = userData;
             if (!username || !roomId) return;
+
+            console.log(`User ${username} wants to join room: ${roomId}`);
 
             // Make the socket join the specific room
             socket.join(roomId);
@@ -41,16 +48,21 @@ io.on("connection", (socket) => {
 
             // Tell everyone in the room that a new person joined so they can update their user list
             io.to(roomId).emit("user_update", getAllUsersInRoom(roomId));
+
+            console.log(`User ${username} joined successfully`);
         } catch (error) {
             console.error("Oops, error during join:", error);
         }
     });
 
-    // When someone finished a drawing (like unclicking the mouse)
     socket.on("draw_op", (drawingValue) => {
         try {
             const activeUser = findUserById(socket.id);
-            if (!activeUser) return;
+            if (!activeUser) {
+                console.log(`Could not find user for draw_op: ${socket.id}`);
+                return;
+            }
+            console.log(`Received draw_op from ${activeUser.username}`);
 
             // Creating a final object for the drawing with a unique ID and user info
             const finalizedDrawing = {
@@ -63,7 +75,9 @@ io.on("connection", (socket) => {
             // Save it to history and broadcast it to everyone in the room
             saveNewOperation(activeUser.roomId, finalizedDrawing);
             io.to(activeUser.roomId).emit("new_op", finalizedDrawing);
-        } catch (error) { }
+        } catch (error) {
+            console.error("Error in draw_op:", error);
+        }
     });
 
     // This handles the "live" drawing updates so others can see things while they are being drawn
@@ -126,10 +140,13 @@ io.on("connection", (socket) => {
         try {
             const leavingUser = removeUserFromList(socket.id);
             if (leavingUser) {
+                console.log(`User ${leavingUser.username} disconnected from ${leavingUser.roomId}`);
+
                 const peopleStillInRoom = getAllUsersInRoom(leavingUser.roomId);
 
                 // If nobody is left, I clear the room history to keep my server fast
                 if (peopleStillInRoom.length === 0) {
+                    console.log(`Room ${leavingUser.roomId} is empty. Clearing history.`);
                     removeRoomData(leavingUser.roomId);
                 } else {
                     // Otherwise, tell others that someone left
@@ -140,8 +157,7 @@ io.on("connection", (socket) => {
     });
 });
 
-// The server listens on port 3001
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
     console.log(`Server started on http://localhost:${PORT}`);
 });
