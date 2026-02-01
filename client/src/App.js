@@ -15,6 +15,8 @@ export default function App() {
   const [selectedColor, setSelectedColor] = useState("#000000");
   const [brushThickness, setBrushThickness] = useState(3);
 
+  console.log("BACKEND URL =", import.meta.env.VITE_BACKEND_URL);
+
   // This is where I store everything drawn on the canvas so far
   const [globalDrawingHistory, setGlobalDrawingHistory] = useState([]);
 
