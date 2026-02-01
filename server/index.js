@@ -163,8 +163,8 @@ io.on("connection", (socket) => {
     });
 });
 
-const __dirnameResolved = path.resolve();
-app.use(express.static(path.join(__dirnameResolved, "../client/build")));
+const buildPath = path.join(__dirname, "../client/build");
+app.use(express.static(buildPath));
 
 app.get("*", (req, res) => {
     res.sendFile(
