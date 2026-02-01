@@ -1,9 +1,9 @@
 {
-    "name": "render-fullstack-socket",
+    "name": "railway-fullstack-socket",
     "private": true,
     "scripts": {
         "install-all": "npm install --prefix server && npm install --prefix client",
         "build": "npm run build --prefix client",
-        "start": "node server/app.js"
+        "start": "node server/index.js"
     }
 }
