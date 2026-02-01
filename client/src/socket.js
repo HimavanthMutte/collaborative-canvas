@@ -1,6 +1,8 @@
+// client/src/socket.js
 import { io } from "socket.io-client";
 
-// I set autoConnect to false so I can manually start the connection when I click 'Join'
-export const socket = io("http://localhost:3001", {
-    autoConnect: false,
+const socket = io(import.meta.env.VITE_BACKEND_URL, {
+    transports: ["websocket"]
 });
+
+export default socket;
