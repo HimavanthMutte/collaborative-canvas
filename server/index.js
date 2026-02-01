@@ -168,7 +168,7 @@ app.use(express.static(buildPath));
 
 app.get("*", (req, res) => {
     res.sendFile(
-        path.join(__dirnameResolved, "../client/build/index.html")
+        path.join(buildPath, "index.html")
     );
 });
 
