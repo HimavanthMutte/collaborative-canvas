@@ -13,6 +13,11 @@ require("dotenv").config();
 // Created the HTTP server and then connected Socket.io to it
 const server = http.createServer(app);
 
+app.get("/health", (req, res) => {
+    res.send("OK");
+});
+
+
 const io = new Server(server, {
     cors: {
         origin: "*",
