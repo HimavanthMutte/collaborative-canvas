@@ -20,7 +20,14 @@ I created this multi-user drawing application so friends can draw together on a 
    ```
    I set this up so it automatically installs dependencies for both the client and the server folders.
 
-2. **Start the app**:
+2. **Configure environment variables**:
+   Create a `.env` file in the `client` folder based on `.env.example`:
+   ```bash
+   cp client/.env.example client/.env
+   ```
+   Make sure `VITE_BACKEND_URL` is set to your server's address (default is `http://localhost:3001`).
+
+3. **Start the app**:
    ```bash
    npm start
    ```
