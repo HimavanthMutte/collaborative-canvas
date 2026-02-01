@@ -3,12 +3,14 @@ const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
 
-const { userJoin, getCurrentUser, userLeave, getRoomUsers } = require("./rooms");
-const { getHistory, addOperation, undo, redo, clearRoom } = require("./drawing-state");
+// I imported my own helper functions from other files
+const { addUserToRoom, findUserById, removeUserFromList, getAllUsersInRoom } = require("./rooms");
+const { getRoomHistory, saveNewOperation, undoLastAction, redoLastAction, removeRoomData } = require("./drawing-state");
 
 const app = express();
-app.use(cors());
+app.use(cors()); // Used CORS so my React app can talk to this server
 
+// Created the HTTP server and then connected Socket.io to it
 const server = http.createServer(app);
 
 const io = new Server(server, {
@@ -18,100 +20,128 @@ const io = new Server(server, {
     },
 });
 
+// This is where the magic happens when a user connects
 io.on("connection", (socket) => {
-    socket.on("join_room", (data) => {
+
+    // When a user hits the 'Join' button in my React app
+    socket.on("join_room", (userData) => {
         try {
-            const { username, roomId } = data;
+            const { username, roomId } = userData;
             if (!username || !roomId) return;
 
+            // Make the socket join the specific room
             socket.join(roomId);
 
-            const user = userJoin(socket.id, username, roomId);
-            const history = getHistory(roomId);
+            // Save the user to my list and give them a random color
+            const connectedUser = addUserToRoom(socket.id, username, roomId);
 
-            socket.emit("init_state", history);
-            io.to(roomId).emit("user_update", getRoomUsers(roomId));
-        } catch (err) { }
+            // Send the existing drawing history to the new person so their canvas isn't blank
+            const existingHistory = getRoomHistory(roomId);
+            socket.emit("init_state", existingHistory);
+
+            // Tell everyone in the room that a new person joined so they can update their user list
+            io.to(roomId).emit("user_update", getAllUsersInRoom(roomId));
+        } catch (error) {
+            console.error("Oops, error during join:", error);
+        }
     });
 
-    socket.on("draw_op", (data) => {
+    // When someone finished a drawing (like unclicking the mouse)
+    socket.on("draw_op", (drawingValue) => {
         try {
-            const user = getCurrentUser(socket.id);
-            if (!user) return;
+            const activeUser = findUserById(socket.id);
+            if (!activeUser) return;
 
-            const operation = {
-                ...data,
-                id: Date.now() + Math.random(),
-                userId: user.id,
-                username: user.username
+            // Creating a final object for the drawing with a unique ID and user info
+            const finalizedDrawing = {
+                ...drawingValue,
+                id: "draw_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
+                userId: activeUser.id,
+                username: activeUser.username
             };
 
-            addOperation(user.roomId, operation);
-            io.to(user.roomId).emit("new_op", operation);
-        } catch (err) { }
+            // Save it to history and broadcast it to everyone in the room
+            saveNewOperation(activeUser.roomId, finalizedDrawing);
+            io.to(activeUser.roomId).emit("new_op", finalizedDrawing);
+        } catch (error) { }
     });
 
-    socket.on("draw_step", (data) => {
+    // This handles the "live" drawing updates so others can see things while they are being drawn
+    socket.on("draw_step", (intermediateStep) => {
         try {
-            const user = getCurrentUser(socket.id);
-            if (!user) return;
-            socket.to(user.roomId).emit("draw_step", { ...data, userId: user.id });
-        } catch (err) { }
+            const activeUser = findUserById(socket.id);
+            if (!activeUser) return;
+
+            // Sending this to everyone EXCEPT the person who is currently drawing
+            socket.to(activeUser.roomId).emit("draw_step", { ...intermediateStep, userId: activeUser.id });
+        } catch (error) { }
     });
 
+    // If anyone clicks 'Undo'
     socket.on("undo", () => {
         try {
-            const user = getCurrentUser(socket.id);
-            if (!user) return;
+            const activeUser = findUserById(socket.id);
+            if (!activeUser) return;
 
-            const undoneOp = undo(user.roomId);
-            if (undoneOp) {
-                io.to(user.roomId).emit("undo_op", undoneOp.id);
+            const undoneShape = undoLastAction(activeUser.roomId);
+            if (undoneShape) {
+                // Tell everyone to remove this specific shape ID from their canvas
+                io.to(activeUser.roomId).emit("undo_op", undoneShape.id);
             }
-        } catch (err) { }
+        } catch (error) { }
     });
 
+    // If anyone clicks 'Redo'
     socket.on("redo", () => {
         try {
-            const user = getCurrentUser(socket.id);
-            if (!user) return;
+            const activeUser = findUserById(socket.id);
+            if (!activeUser) return;
 
-            const redoneOp = redo(user.roomId);
-            if (redoneOp) {
-                io.to(user.roomId).emit("new_op", redoneOp);
+            const redoneShape = redoLastAction(activeUser.roomId);
+            if (redoneShape) {
+                // Broadcast it like a new drawing operation
+                io.to(activeUser.roomId).emit("new_op", redoneShape);
             }
-        } catch (err) { }
+        } catch (error) { }
     });
 
-    socket.on("cursor_move", (data) => {
+    // Share cursor movements in real-time
+    socket.on("cursor_move", (coordinates) => {
         try {
-            const user = getCurrentUser(socket.id);
-            if (!user) return;
-            socket.to(user.roomId).emit("cursor_update", {
-                userId: user.id,
-                username: user.username,
-                color: user.color,
-                x: data.x,
-                y: data.y
+            const activeUser = findUserById(socket.id);
+            if (!activeUser) return;
+
+            socket.to(activeUser.roomId).emit("cursor_update", {
+                userId: activeUser.id,
+                username: activeUser.username,
+                color: activeUser.color,
+                x: coordinates.x,
+                y: coordinates.y
             });
-        } catch (err) { }
+        } catch (error) { }
     });
 
+    // When a user closes the tab or disconnects
     socket.on("disconnect", () => {
         try {
-            const user = userLeave(socket.id);
-            if (user) {
-                const remainingUsers = getRoomUsers(user.roomId);
-                if (remainingUsers.length === 0) {
-                    clearRoom(user.roomId);
+            const leavingUser = removeUserFromList(socket.id);
+            if (leavingUser) {
+                const peopleStillInRoom = getAllUsersInRoom(leavingUser.roomId);
+
+                // If nobody is left, I clear the room history to keep my server fast
+                if (peopleStillInRoom.length === 0) {
+                    removeRoomData(leavingUser.roomId);
                 } else {
-                    io.to(user.roomId).emit("user_update", remainingUsers);
+                    // Otherwise, tell others that someone left
+                    io.to(leavingUser.roomId).emit("user_update", peopleStillInRoom);
                 }
             }
-        } catch (err) { }
+        } catch (error) { }
     });
 });
 
+// The server listens on port 3001
 const PORT = 3001;
 server.listen(PORT, () => {
+    console.log(`Server started on http://localhost:${PORT}`);
 });

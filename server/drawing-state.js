@@ -1,53 +1,69 @@
-const roomHistories = {};
-const roomRedoStacks = {};
+// Store the drawing history and redo stacks for each room in these objects
+const drawingHistories = {};
+const redoHistoryStacks = {};
 
-const getHistory = (roomId) => {
-    if (!roomHistories[roomId]) {
-        roomHistories[roomId] = [];
+// This function gets the drawing history for a specific room
+const getRoomHistory = (roomId) => {
+    // If the room doesn't exist yet, I create an empty array for it
+    if (!drawingHistories[roomId]) {
+        drawingHistories[roomId] = [];
     }
-    return roomHistories[roomId];
+    return drawingHistories[roomId];
 };
 
-const addOperation = (roomId, operation) => {
-    if (!roomHistories[roomId]) {
-        roomHistories[roomId] = [];
+// I use this when a user finishes a drawing action
+const saveNewOperation = (roomId, drawingData) => {
+    if (!drawingHistories[roomId]) {
+        drawingHistories[roomId] = [];
     }
-    roomHistories[roomId].push(operation);
-    roomRedoStacks[roomId] = [];
-    return operation;
+    // Add the new shape to the room's history
+    drawingHistories[roomId].push(drawingData);
+
+    // When a new thing is drawn, I clear the redo stack because the history changed
+    redoHistoryStacks[roomId] = [];
+    return drawingData;
 };
 
-const undo = (roomId) => {
-    const history = getHistory(roomId);
+// This handles the "Undo" request
+const undoLastAction = (roomId) => {
+    const history = getRoomHistory(roomId);
     if (history.length === 0) return null;
 
-    const op = history.pop();
+    // Remove the last action from history
+    const lastAction = history.pop();
 
-    if (!roomRedoStacks[roomId]) roomRedoStacks[roomId] = [];
-    roomRedoStacks[roomId].push(op);
+    // Put it into the redo stack so I can bring it back if needed
+    if (!redoHistoryStacks[roomId]) redoHistoryStacks[roomId] = [];
+    redoHistoryStacks[roomId].push(lastAction);
 
-    return op;
+    return lastAction;
 };
 
-const redo = (roomId) => {
-    if (!roomRedoStacks[roomId] || roomRedoStacks[roomId].length === 0) return null;
+// This handles the "Redo" request
+const redoLastAction = (roomId) => {
+    // If there's nothing to redo, I just return null
+    if (!redoHistoryStacks[roomId] || redoHistoryStacks[roomId].length === 0) return null;
 
-    const op = roomRedoStacks[roomId].pop();
-    const history = getHistory(roomId);
-    history.push(op);
+    // Take the last undone action from the redo stack
+    const actionToRestore = redoHistoryStacks[roomId].pop();
+    const history = getRoomHistory(roomId);
 
-    return op;
+    // Put it back into the main history
+    history.push(actionToRestore);
+
+    return actionToRestore;
 };
 
-const clearRoom = (roomId) => {
-    delete roomHistories[roomId];
-    delete roomRedoStacks[roomId];
+// When everyone leaves, I clean up the room data to save memory
+const removeRoomData = (roomId) => {
+    delete drawingHistories[roomId];
+    delete redoHistoryStacks[roomId];
 };
 
 module.exports = {
-    getHistory,
-    addOperation,
-    undo,
-    redo,
-    clearRoom
+    getRoomHistory,
+    saveNewOperation,
+    undoLastAction,
+    redoLastAction,
+    removeRoomData
 };

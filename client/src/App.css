@@ -2,6 +2,16 @@
   text-align: center;
 }
 
-.canvas1 {
-  background-color: black;
+button {
+  padding: 5px 12px;
+  cursor: pointer;
+  border: 1px solid #ccc;
+  background: white;
+  border-radius: 4px;
+}
+
+button.active {
+  background: #007bff;
+  color: white;
+  border-color: #0056b3;
 }
