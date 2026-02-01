@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState, useCallback } from "react";
-import { socket } from "./socket";
+import socket from "./socket";
 import "./App.css";
 
 export default function App() {
