@@ -2,7 +2,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
-
+const path = require("path");
 // I imported my own helper functions from other files
 const { addUserToRoom, findUserById, removeUserFromList, getAllUsersInRoom } = require("./rooms");
 const { getRoomHistory, saveNewOperation, undoLastAction, redoLastAction, removeRoomData } = require("./drawing-state");
@@ -23,6 +23,7 @@ const io = new Server(server, {
         origin: "*",
         methods: ["GET", "POST"],
     },
+    transports: ["websocket"]
 });
 
 // This is where the magic happens when a user connects
@@ -160,6 +161,15 @@ io.on("connection", (socket) => {
             }
         } catch (error) { }
     });
+});
+
+const __dirnameResolved = path.resolve();
+app.use(express.static(path.join(__dirnameResolved, "../client/build")));
+
+app.get("*", (req, res) => {
+    res.sendFile(
+        path.join(__dirnameResolved, "../client/build/index.html")
+    );
 });
 
 const PORT = process.env.PORT || 3001;

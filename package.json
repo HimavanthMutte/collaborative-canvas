@@ -1,14 +1,9 @@
 {
-    "name": "collaborative-canvas",
-    "version": "1.0.0",
-    "description": "A real-time collaborative drawing canvas",
-    "main": "index.js",
+    "name": "render-fullstack-socket",
+    "private": true,
     "scripts": {
-        "postinstall": "cd client && npm install && cd ../server && npm install",
-        "start": "concurrently \"cd server && node index.js\" \"cd client && npm start\"",
-        "test": "echo \"Error: no test specified\" && exit 1"
-    },
-    "devDependencies": {
-        "concurrently": "^8.2.2"
+        "install-all": "npm install --prefix server && npm install --prefix client",
+        "build": "npm run build --prefix client",
+        "start": "node server/app.js"
     }
 }
